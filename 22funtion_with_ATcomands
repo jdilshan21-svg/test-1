@@ -1,0 +1,109 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Stepper.h>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
+#define OLED_ADDR     0x3C
+
+
+#define OLED_SDA      14
+#define OLED_SCL      15
+
+#define IN1 12
+#define IN2 13
+#define IN3 2
+#define IN4 4
+
+#define LIMIT_SWITCH_PIN 16
+#define BUZZER_PIN 0
+
+const int stepsPerRev = 2048;
+const float stepAngle = 360.0 / 22.0;
+const int stepsPerPocket = stepsPerRev * stepAngle / 360.0;
+
+Stepper stepper(stepsPerRev, IN1, IN3, IN2, IN4);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+int currentPosition = 0;
+bool homed = false;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LIMIT_SWITCH_PIN, INPUT_PULLUP);
+  pinMode(BUZZER_PIN, OUTPUT);
+
+  Wire.begin(OLED_SDA, OLED_SCL);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    Serial.println("OLED not found");
+  } else {
+    displayDisplay("Waiting...");
+  }
+
+  stepper.setSpeed(10);
+  homePosition();
+}
+
+void loop() {
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    if (cmd.startsWith("id")) {
+      int targetId = cmd.substring(2).toInt();
+      if (targetId >= 1 && targetId <= 22) {
+        moveToSlot(targetId);
+      }
+    } else if (cmd == "home") {
+      homePosition();
+    }
+  }
+}
+
+void homePosition() {
+  Serial.println("Homing...");
+  while (digitalRead(LIMIT_SWITCH_PIN) == HIGH) {
+    stepper.step(-1);
+  }
+  currentPosition = 0;
+  homed = true;
+  displayDisplay("Homed");
+  Serial.println("✅ Homed");
+}
+
+void moveToSlot(int targetId) {
+  if (!homed) {
+    Serial.println("❌ Not homed yet");
+    return;
+  }
+
+  int targetSteps = stepsPerPocket * targetId;
+  int deltaSteps = targetSteps - (currentPosition * stepsPerPocket);
+
+  Serial.print("➡ Moving to ID ");
+  Serial.println(targetId);
+  Serial.print("Steps: ");
+  Serial.println(deltaSteps);
+
+  stepper.step(deltaSteps);
+  currentPosition = targetId;
+
+  buzz();
+  displayDisplay("ID: " + String(targetId));
+}
+
+void buzz() {
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(300);
+  digitalWrite(BUZZER_PIN, LOW);
+}
+
+void displayDisplay(String text) {
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 20);
+  display.println(text);
+  display.display();
+}
